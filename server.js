@@ -1,4 +1,3 @@
-```javascript
 const WebSocket = require('ws');
 
 // Render assigns a dynamic PORT environment variable
