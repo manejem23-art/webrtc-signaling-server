@@ -1,149 +1,640 @@
-const http = require('http');
-const WebSocket = require('ws');
+const http = require("http");
+const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 8080;
-const HOST = '127.0.0.1';
+const HOST = "0.0.0.0";
 
-// HTTP Server instance
+// ============================================================
+// HTTP SERVER
+// ============================================================
+
 const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('WebRTC Signaling Server Running');
+    res.writeHead(200, {
+        "Content-Type": "text/plain"
+    });
+
+    res.end("Clinical OS WebRTC Signaling Server Running");
 });
 
-// WebSocket Server attached to HTTP Server
-const wss = new WebSocket.Server({ server });
+// ============================================================
+// WEBSOCKET SERVER
+// ============================================================
+
+const wss = new WebSocket.Server({
+    server: server
+});
+
+// ============================================================
+// ROOMS
+// ============================================================
+//
+// rooms = {
+//    "SUPPORT-ROOM-9021": [
+//       websocket,
+//       websocket
+//    ]
+// }
+//
 
 const rooms = {};
 
-// Connection Handler
-wss.on('connection', (ws) => {
+// ============================================================
+// HELPER: SEND TO EVERYONE IN ROOM EXCEPT SENDER
+// ============================================================
+
+function broadcast(room, sender, data) {
+
+    if (!room) {
+        return;
+    }
+
+    if (!rooms[room]) {
+        return;
+    }
+
+    const message = JSON.stringify(data);
+
+    rooms[room].forEach(client => {
+
+        if (
+            client !== sender &&
+            client.readyState === WebSocket.OPEN
+        ) {
+
+            try {
+                client.send(message);
+            } catch (error) {
+                console.error("Broadcast error:", error);
+            }
+
+        }
+
+    });
+}
+
+// ============================================================
+// HELPER: SEND TO EVERYONE IN ROOM
+// ============================================================
+
+function broadcastAll(room, data) {
+
+    if (!room || !rooms[room]) {
+        return;
+    }
+
+    const message = JSON.stringify(data);
+
+    rooms[room].forEach(client => {
+
+        if (client.readyState === WebSocket.OPEN) {
+
+            try {
+                client.send(message);
+            } catch (error) {
+                console.error("Broadcast all error:", error);
+            }
+
+        }
+
+    });
+}
+
+// ============================================================
+// CONNECTION
+// ============================================================
+
+wss.on("connection", (ws, request) => {
+
+    console.log("WebSocket client connected");
+
     let currentRoom = null;
-    let supportRoom = null;
+    let role = "unknown";
     let deviceInfo = null;
 
-    ws.on('message', (message) => {
+    // ========================================================
+    // MESSAGE
+    // ========================================================
+
+    ws.on("message", rawMessage => {
+
         try {
-            const data = JSON.parse(message);
 
-            switch (data.type) {
+            const data = JSON.parse(rawMessage.toString());
 
-                // Video Consultation Actions
-                case 'join':
-                    currentRoom = data.room;
-                    if (!rooms[currentRoom]) {
-                        rooms[currentRoom] = [];
-                    }
+            console.log(
+                "Message:",
+                data.type,
+                "Room:",
+                data.room || currentRoom
+            );
+
+            // =================================================
+            // JOIN ROOM
+            // =================================================
+
+            if (data.type === "join") {
+
+                const room =
+                    data.room ||
+                    "SUPPORT-ROOM-9021";
+
+                currentRoom = room;
+
+                role =
+                    data.role ||
+                    "unknown";
+
+                // Create room
+                if (!rooms[currentRoom]) {
+                    rooms[currentRoom] = [];
+                }
+
+                // Don't add same socket twice
+                if (!rooms[currentRoom].includes(ws)) {
+
                     rooms[currentRoom].push(ws);
 
-                    rooms[currentRoom].forEach(client => {
-                        if (client !== ws && client.readyState === WebSocket.OPEN) {
-                            client.send(JSON.stringify({ type: 'peer-joined' }));
+                }
+
+                console.log(
+                    `Client joined room ${currentRoom} as ${role}`
+                );
+
+                // Tell joining client
+                ws.send(JSON.stringify({
+
+                    type: "joined",
+
+                    room: currentRoom,
+
+                    role: role
+
+                }));
+
+                // Tell everyone else
+                broadcast(
+                    currentRoom,
+                    ws,
+                    {
+
+                        type: "peer-joined",
+
+                        role: role
+
+                    }
+                );
+
+                // If doctor joins, tell admin
+                if (role === "doctor-support") {
+
+                    broadcast(
+                        currentRoom,
+                        ws,
+                        {
+
+                            type: "doctor-connected"
+
                         }
-                    });
-                    break;
+                    );
 
-                case 'offer':
-                case 'answer':
-                case 'ice-candidate':
-                case 'prescription-update':
-                case 'patient-vitals':
-                case 'patient-allergy':
-                case 'vitals-update':
-                case 'allergy-update':
-                    if (rooms[currentRoom]) {
-                        rooms[currentRoom].forEach(client => {
-                            if (client !== ws && client.readyState === WebSocket.OPEN) {
-                                client.send(JSON.stringify(data));
-                            }
-                        });
-                    }
-                    break;
+                }
 
-                // Support System Actions
-                case 'support-join':
-                    supportRoom = data.room || data.supportRoom;
-                    deviceInfo = {
-                        deviceId: data.deviceId || null,
-                        deviceName: data.deviceName || 'Unknown Device',
-                        role: data.role || 'unknown',
-                        platform: data.platform || 'unknown',
-                        browser: data.browser || 'unknown',
-                        joinedAt: new Date().toISOString()
-                    };
+                // If admin joins, tell doctor
+                if (role === "admin-support") {
 
-                    if (!rooms[supportRoom]) {
-                        rooms[supportRoom] = [];
-                    }
-                    if (!rooms[supportRoom].includes(ws)) {
-                        rooms[supportRoom].push(ws);
-                    }
+                    broadcast(
+                        currentRoom,
+                        ws,
+                        {
 
-                    ws.send(JSON.stringify({
-                        type: 'support-joined',
-                        room: supportRoom,
-                        device: deviceInfo
-                    }));
+                            type: "admin-connected"
 
-                    rooms[supportRoom].forEach(client => {
-                        if (client !== ws && client.readyState === WebSocket.OPEN) {
-                            client.send(JSON.stringify({
-                                type: 'support-device',
-                                device: deviceInfo
-                            }));
                         }
-                    });
-                    break;
+                    );
 
-                case 'support-request':
-                case 'support-accepted':
-                case 'support-rejected':
-                case 'support-offer':
-                case 'support-answer':
-                case 'support-ice-candidate':
-                case 'support-started':
-                case 'screen-share-stopped':
-                case 'support-message':
-                case 'support-disconnect':
-                    if (supportRoom && rooms[supportRoom]) {
-                        rooms[supportRoom].forEach(client => {
-                            if (client !== ws && client.readyState === WebSocket.OPEN) {
-                                client.send(JSON.stringify(data));
-                            }
-                        });
-                    }
-                    break;
+                }
+
+                return;
             }
-        } catch (err) {
-            console.error("Error parsing message:", err);
+
+            // =================================================
+            // SUPPORT JOIN
+            // =================================================
+            //
+            // Keep compatibility with older code.
+            //
+
+            if (data.type === "support-join") {
+
+                const room =
+                    data.room ||
+                    data.supportRoom ||
+                    "SUPPORT-ROOM-9021";
+
+                currentRoom = room;
+
+                role =
+                    data.role ||
+                    "unknown";
+
+                deviceInfo = {
+
+                    deviceId:
+                        data.deviceId ||
+                        null,
+
+                    deviceName:
+                        data.deviceName ||
+                        "Unknown Device",
+
+                    role:
+                        role,
+
+                    platform:
+                        data.platform ||
+                        "unknown",
+
+                    browser:
+                        data.browser ||
+                        "unknown",
+
+                    joinedAt:
+                        new Date().toISOString()
+
+                };
+
+                if (!rooms[currentRoom]) {
+
+                    rooms[currentRoom] = [];
+
+                }
+
+                if (!rooms[currentRoom].includes(ws)) {
+
+                    rooms[currentRoom].push(ws);
+
+                }
+
+                ws.send(JSON.stringify({
+
+                    type: "support-joined",
+
+                    room: currentRoom,
+
+                    device: deviceInfo
+
+                }));
+
+                broadcast(
+                    currentRoom,
+                    ws,
+                    {
+
+                        type: "support-device",
+
+                        device: deviceInfo
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // MAKE SURE CLIENT IS IN A ROOM
+            // =================================================
+
+            const room =
+                data.room ||
+                currentRoom;
+
+            if (!room) {
+
+                ws.send(JSON.stringify({
+
+                    type: "error",
+
+                    message:
+                        "Client has not joined a room."
+
+                }));
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN SHARE REQUEST
+            // =================================================
+
+            if (data.type === "screen-share-request") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "screen-share-request",
+
+                        room:
+                            room
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN OFFER
+            // =================================================
+
+            if (data.type === "screen-offer") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "screen-offer",
+
+                        room:
+                            room,
+
+                        offer:
+                            data.offer
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN ANSWER
+            // =================================================
+
+            if (data.type === "screen-answer") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "screen-answer",
+
+                        room:
+                            room,
+
+                        answer:
+                            data.answer
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN ICE
+            // =================================================
+
+            if (data.type === "screen-ice-candidate") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "screen-ice-candidate",
+
+                        room:
+                            room,
+
+                        candidate:
+                            data.candidate
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN STOPPED
+            // =================================================
+
+            if (data.type === "screen-stopped") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "screen-stopped",
+
+                        room:
+                            room
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SCREEN SHARE STARTED
+            // =================================================
+
+            if (data.type === "support-started") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "support-started",
+
+                        room:
+                            room
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SUPPORT MESSAGE
+            // =================================================
+
+            if (data.type === "support-message") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "support-message",
+
+                        message:
+                            data.message || ""
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // SUPPORT DISCONNECT
+            // =================================================
+
+            if (data.type === "support-disconnect") {
+
+                broadcast(
+                    room,
+                    ws,
+                    {
+
+                        type:
+                            "support-disconnect"
+
+                    }
+                );
+
+                return;
+            }
+
+            // =================================================
+            // NORMAL WEBRTC CONSULTATION SIGNALING
+            // =================================================
+
+            const normalWebRTC =
+                [
+                    "offer",
+                    "answer",
+                    "ice-candidate",
+                    "prescription-update",
+                    "patient-vitals",
+                    "patient-allergy",
+                    "vitals-update",
+                    "allergy-update"
+                ];
+
+            if (normalWebRTC.includes(data.type)) {
+
+                broadcast(
+                    room,
+                    ws,
+                    data
+                );
+
+                return;
+            }
+
+            // =================================================
+            // UNKNOWN MESSAGE
+            // =================================================
+
+            console.log(
+                "Unknown message type:",
+                data.type
+            );
+
+        } catch (error) {
+
+            console.error(
+                "Message processing error:",
+                error
+            );
+
         }
+
     });
 
-    ws.on('close', () => {
-        if (currentRoom && rooms[currentRoom]) {
-            rooms[currentRoom] = rooms[currentRoom].filter(client => client !== ws);
-            rooms[currentRoom].forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({ type: 'peer-left' }));
+    // ========================================================
+    // CLOSE
+    // ========================================================
+
+    ws.on("close", () => {
+
+        console.log(
+            "WebSocket client disconnected:",
+            role,
+            currentRoom
+        );
+
+        if (
+            currentRoom &&
+            rooms[currentRoom]
+        ) {
+
+            rooms[currentRoom] =
+                rooms[currentRoom].filter(
+                    client => client !== ws
+                );
+
+            // Tell remaining clients
+            broadcastAll(
+                currentRoom,
+                {
+
+                    type:
+                        "peer-left",
+
+                    role:
+                        role
+
                 }
-            });
-            if (rooms[currentRoom].length === 0) delete rooms[currentRoom];
+            );
+
+            // Delete empty room
+            if (
+                rooms[currentRoom].length === 0
+            ) {
+
+                delete rooms[currentRoom];
+
+            }
+
         }
 
-        if (supportRoom && rooms[supportRoom]) {
-            rooms[supportRoom] = rooms[supportRoom].filter(client => client !== ws);
-            rooms[supportRoom].forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({
-                        type: 'support-device-left',
-                        deviceId: deviceInfo ? deviceInfo.deviceId : null
-                    }));
-                }
-            });
-            if (rooms[supportRoom].length === 0) delete rooms[supportRoom];
-        }
     });
+
+    // ========================================================
+    // ERROR
+    // ========================================================
+
+    ws.on("error", error => {
+
+        console.error(
+            "WebSocket error:",
+            error
+        );
+
+    });
+
 });
 
-server.listen(PORT, HOST, () => {
-    console.log(`WebRTC Signaling Server running on http://${HOST}:${PORT}`);
-});
+// ============================================================
+// START SERVER
+// ============================================================
+
+server.listen(
+    PORT,
+    HOST,
+    () => {
+
+        console.log(
+            `Clinical OS WebRTC Signaling Server running on port ${PORT}`
+        );
+
+    }
+);
