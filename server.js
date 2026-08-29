@@ -1,13 +1,21 @@
+const http = require('http');
 const WebSocket = require('ws');
 
-// Render assigns a dynamic PORT environment variable
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+
+// Create a simple HTTP server without SSL/HTTPS overhead
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('WebRTC Signaling Server Running');
+});
+
+// Attach WebSocket Server
+const wss = new WebSocket.Server({ server });
 
 const rooms = {};
 
 // ==========================================================
-// EXISTING WEBRTC VIDEO CONSULTATION SYSTEM
+// WEBRTC CONSULTATION & PMS REMOTE SUPPORT SYSTEM
 // ==========================================================
 
 wss.on('connection', (ws) => {
@@ -19,12 +27,11 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
-            // ==================================================
-            // EXISTING VIDEO CONSULTATION SYSTEM
-            // DO NOT CHANGE
-            // ==================================================
-
             switch (data.type) {
+
+                // ==================================================
+                // VIDEO CONSULTATION SYSTEM
+                // ==================================================
 
                 case 'join':
                     currentRoom = data.room;
@@ -53,26 +60,17 @@ wss.on('connection', (ws) => {
                 case 'ice-candidate':
 
                     if (rooms[currentRoom]) {
-
                         rooms[currentRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
                             ) {
                                 client.send(JSON.stringify(data));
                             }
-
                         });
                     }
 
                     break;
-
-
-                // ==================================================
-                // EXISTING PRESCRIPTION / PATIENT MESSAGES
-                // ADDED RELAY SUPPORT
-                // ==================================================
 
                 case 'prescription-update':
                 case 'patient-vitals':
@@ -81,16 +79,13 @@ wss.on('connection', (ws) => {
                 case 'allergy-update':
 
                     if (rooms[currentRoom]) {
-
                         rooms[currentRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
                             ) {
                                 client.send(JSON.stringify(data));
                             }
-
                         });
                     }
 
@@ -101,7 +96,6 @@ wss.on('connection', (ws) => {
                 // PMS SUPPORT SYSTEM
                 // ==================================================
 
-                // Doctor/admin joins a support room
                 case 'support-join':
 
                     supportRoom = data.room || data.supportRoom;
@@ -120,21 +114,17 @@ wss.on('connection', (ws) => {
                         rooms[supportRoom] = [];
                     }
 
-                    // Prevent duplicate socket registration
                     if (!rooms[supportRoom].includes(ws)) {
                         rooms[supportRoom].push(ws);
                     }
 
-                    // Tell the new client that they successfully joined
                     ws.send(JSON.stringify({
                         type: 'support-joined',
                         room: supportRoom,
                         device: deviceInfo
                     }));
 
-                    // Tell everyone else about this device
                     rooms[supportRoom].forEach(client => {
-
                         if (
                             client !== ws &&
                             client.readyState === WebSocket.OPEN
@@ -144,7 +134,6 @@ wss.on('connection', (ws) => {
                                 device: deviceInfo
                             }));
                         }
-
                     });
 
                     console.log(
@@ -153,15 +142,9 @@ wss.on('connection', (ws) => {
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT DEVICE DISCOVERY
-                // ==================================================
-
                 case 'support-device-info':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         const info = {
                             deviceId: data.deviceId || null,
                             deviceName: data.deviceName || 'Unknown Device',
@@ -173,7 +156,6 @@ wss.on('connection', (ws) => {
                         };
 
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -183,23 +165,15 @@ wss.on('connection', (ws) => {
                                     device: info
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // ADMIN REQUESTS SUPPORT FROM DOCTOR DEVICE
-                // ==================================================
-
                 case 'support-request':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -212,23 +186,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // DOCTOR ACCEPTS SUPPORT REQUEST
-                // ==================================================
-
                 case 'support-accepted':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -240,23 +206,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // DOCTOR REJECTS SUPPORT REQUEST
-                // ==================================================
-
                 case 'support-rejected':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -267,24 +225,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT WEBRTC OFFER
-                // Used for screen sharing
-                // ==================================================
-
                 case 'support-offer':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -295,23 +244,15 @@ wss.on('connection', (ws) => {
                                     fromDeviceId: data.deviceId || null
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT WEBRTC ANSWER
-                // ==================================================
-
                 case 'support-answer':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -322,23 +263,15 @@ wss.on('connection', (ws) => {
                                     fromDeviceId: data.deviceId || null
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT ICE CANDIDATES
-                // ==================================================
-
                 case 'support-ice-candidate':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -349,23 +282,15 @@ wss.on('connection', (ws) => {
                                     fromDeviceId: data.deviceId || null
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT STARTED
-                // ==================================================
-
                 case 'support-started':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -376,23 +301,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SCREEN SHARING STOPPED
-                // ==================================================
-
                 case 'screen-share-stopped':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -403,23 +320,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT CHAT / COMMAND MESSAGES
-                // ==================================================
-
                 case 'support-message':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -431,23 +340,15 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
                     break;
 
-
-                // ==================================================
-                // SUPPORT DISCONNECT
-                // ==================================================
-
                 case 'support-disconnect':
 
                     if (supportRoom && rooms[supportRoom]) {
-
                         rooms[supportRoom].forEach(client => {
-
                             if (
                                 client !== ws &&
                                 client.readyState === WebSocket.OPEN
@@ -458,7 +359,6 @@ wss.on('connection', (ws) => {
                                     timestamp: new Date().toISOString()
                                 }));
                             }
-
                         });
                     }
 
@@ -466,43 +366,25 @@ wss.on('connection', (ws) => {
             }
 
         } catch (err) {
-
-            console.error(
-                "Error parsing message:",
-                err
-            );
-
+            console.error("Error parsing message:", err);
         }
     });
 
-
     // ==========================================================
-    // CONNECTION CLOSED
+    // DISCONNECT HANDLER
     // ==========================================================
 
     ws.on('close', () => {
 
-        // ------------------------------------------------------
-        // EXISTING VIDEO ROOM CLEANUP
-        // ------------------------------------------------------
-
         if (currentRoom && rooms[currentRoom]) {
-
-            rooms[currentRoom] =
-                rooms[currentRoom].filter(
-                    client => client !== ws
-                );
+            rooms[currentRoom] = rooms[currentRoom].filter(client => client !== ws);
 
             rooms[currentRoom].forEach(client => {
-
                 if (client.readyState === WebSocket.OPEN) {
-
                     client.send(JSON.stringify({
                         type: 'peer-left'
                     }));
-
                 }
-
             });
 
             if (rooms[currentRoom].length === 0) {
@@ -510,47 +392,27 @@ wss.on('connection', (ws) => {
             }
         }
 
-
-        // ------------------------------------------------------
-        // SUPPORT ROOM CLEANUP
-        // ------------------------------------------------------
-
         if (supportRoom && rooms[supportRoom]) {
-
-            rooms[supportRoom] =
-                rooms[supportRoom].filter(
-                    client => client !== ws
-                );
+            rooms[supportRoom] = rooms[supportRoom].filter(client => client !== ws);
 
             rooms[supportRoom].forEach(client => {
-
                 if (client.readyState === WebSocket.OPEN) {
-
                     client.send(JSON.stringify({
                         type: 'support-device-left',
-                        deviceId: deviceInfo
-                            ? deviceInfo.deviceId
-                            : null
+                        deviceId: deviceInfo ? deviceInfo.deviceId : null
                     }));
-
                 }
-
             });
 
             if (rooms[supportRoom].length === 0) {
                 delete rooms[supportRoom];
             }
 
-            console.log(
-                `[SUPPORT] Device disconnected from ${supportRoom}`
-            );
+            console.log(`[SUPPORT] Device disconnected from ${supportRoom}`);
         }
-
     });
-
 });
 
-console.log(
-    `WebRTC Signaling Server running on port ${PORT}`
-);
-```
+server.listen(PORT, () => {
+    console.log(`[NO-SSL] WebRTC Signaling Server running on port ${PORT}`);
+});
