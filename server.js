@@ -2,14 +2,15 @@ const http = require('http');
 const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 8080;
+const HOST = '127.0.0.1';
 
-// Create a simple HTTP server without SSL/HTTPS overhead
+// Plain HTTP Server (Apache handles SSL termination externally)
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('WebRTC Signaling Server Running');
+    res.end('WebRTC Signaling Server Running via Apache Proxy');
 });
 
-// Attach WebSocket Server
+// Attach WebSocket Server to HTTP instance
 const wss = new WebSocket.Server({ server });
 
 const rooms = {};
@@ -413,6 +414,6 @@ wss.on('connection', (ws) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`[NO-SSL] WebRTC Signaling Server running on port ${PORT}`);
+server.listen(PORT, HOST, () => {
+    console.log(`[PROXY MODE] WebRTC Signaling Server listening on http://${HOST}:${PORT}`);
 });
